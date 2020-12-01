@@ -1,0 +1,68 @@
+# Environment
+# --------------------------------
+# AWS_ACCESS_KEY_ID:
+# AWS_SECRET_ACCESS_KEY:
+# AWS_S3_BUCKET_NAME:
+
+name: Deploy
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - name: Cache dependencies
+        uses: actions/cache@v1
+        with:
+          path: ./node_modules/
+          key: ${{ runner.OS }}-npm-cache-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.OS }}-npm-cache-
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v1
+        with:
+          name: dist
+          path: ./dist/
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v1
+        with:
+          name: dist
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: Get the version
+        id: get_version
+        run: echo ::set-env name=VERSION::${GITHUB_REF/refs\/tags\//}
+
+      - name: Upload to AWS S3
+        working-directory: ./dist/
+        env:
+          AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
+          AWS_S3_VER_DIR_NAME: ${{ env.VERSION }}
+        run: aws s3 sync ./ s3://$AWS_S3_BUCKET_NAME/$GITHUB_REPOSITORY/$AWS_S3_VER_DIR_NAME/
